@@ -37,6 +37,17 @@ streamlit run app.py
 
 The app works immediately in curated demo mode. For live multimodal AI and story narration, set `OPENAI_API_KEY` in `.env`; optionally change `OPENAI_MODEL` or `OPENAI_TTS_MODEL`. Narration uses API credits, is clearly labeled as AI-generated, and is cached under `data/story_audio/` after the first generation.
 
+## Supabase persistence
+
+LittleBloom uses local JSON by default and switches to Supabase automatically when `SUPABASE_URL` and `SUPABASE_SECRET_KEY` are configured.
+
+1. Create a Supabase project.
+2. Run `supabase/schema.sql` in the Supabase SQL Editor.
+3. Copy `.env.example` to `.env` and add the project URL and server-side secret key.
+4. Restart Streamlit. The first successful connection seeds Supabase with the existing local JSON history.
+
+For Streamlit Community Cloud, add the same values in the app's Secrets settings. Never commit `.env`, `.streamlit/secrets.toml`, or a Supabase secret key. This lightweight schema stores one private application-state document and is intended for a single family. Add Supabase Auth and per-family rows before supporting multiple accounts.
+
 ## Architecture
 
 ```text

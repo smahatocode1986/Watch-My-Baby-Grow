@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 DATA_DIR = Path(__file__).parent / "data"
 STORE = DATA_DIR / "littlebloom.json"
+SUPABASE_TABLE = os.getenv("SUPABASE_TABLE", "app_state")
+SUPABASE_STATE_ID = os.getenv("SUPABASE_STATE_ID", "littlebloom")
 
 DEFAULT_PROFILE = {
     "name": "Nyra",
@@ -48,19 +56,76 @@ def _seed() -> dict[str, Any]:
     return {"profile": DEFAULT_PROFILE, "events": [], "stories": [], "plans": []}
 
 
-def load_data() -> dict[str, Any]:
-    DATA_DIR.mkdir(exist_ok=True)
+def is_supabase_configured() -> bool:
+    key = os.getenv("SUPABASE_SECRET_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    return bool(os.getenv("SUPABASE_URL") and key)
+
+
+@lru_cache(maxsize=1)
+def _supabase_client():
+    from supabase import create_client
+
+    url = os.environ["SUPABASE_URL"]
+    key = os.getenv("SUPABASE_SECRET_KEY") or os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    return create_client(url, key)
+
+
+def _load_local() -> dict[str, Any]:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     if not STORE.exists():
-        save_data(_seed())
+        STORE.write_text(json.dumps(_seed(), indent=2, ensure_ascii=False), encoding="utf-8")
     try:
         return json.loads(STORE.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return _seed()
 
 
-def save_data(data: dict[str, Any]) -> None:
-    DATA_DIR.mkdir(exist_ok=True)
+def _save_local(data: dict[str, Any]) -> None:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
     STORE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def load_data() -> dict[str, Any]:
+    if not is_supabase_configured():
+        return _load_local()
+
+    response = (
+        _supabase_client()
+        .table(SUPABASE_TABLE)
+        .select("payload")
+        .eq("id", SUPABASE_STATE_ID)
+        .limit(1)
+        .execute()
+    )
+    if response.data:
+        payload = response.data[0].get("payload")
+        if isinstance(payload, dict):
+            return payload
+
+    # First connection: preserve and migrate any existing local history.
+    initial_data = _load_local()
+    save_data(initial_data)
+    return initial_data
+
+
+def save_data(data: dict[str, Any]) -> None:
+    if not is_supabase_configured():
+        _save_local(data)
+        return
+
+    (
+        _supabase_client()
+        .table(SUPABASE_TABLE)
+        .upsert(
+            {
+                "id": SUPABASE_STATE_ID,
+                "payload": data,
+                "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            },
+            on_conflict="id",
+        )
+        .execute()
+    )
 
 
 def add_event(kind: str, payload: dict[str, Any]) -> None:
