@@ -5,6 +5,7 @@ CSS = r"""
 .stApp { background: var(--cream); color: var(--ink); font-family:'DM Sans',sans-serif; }
 .stApp h1,.stApp h2,.stApp h3 { font-family:'DM Serif Display',serif; color:var(--ink); letter-spacing:-.02em; }
 [data-testid="stHeader"] { background:transparent; }
+#MainMenu { visibility:hidden; }
 [data-testid="stSidebar"] { background:#f0ebe2; border-right:1px solid var(--line); }
 [data-testid="stSidebar"] h1 { font-size:1.55rem; }
 .block-container { max-width:1180px; padding-top:1.6rem; padding-bottom:4rem; }
