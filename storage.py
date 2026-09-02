@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+import warnings
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -89,14 +91,22 @@ def load_data() -> dict[str, Any]:
     if not is_supabase_configured():
         return _load_local()
 
-    response = (
-        _supabase_client()
-        .table(SUPABASE_TABLE)
-        .select("payload")
-        .eq("id", SUPABASE_STATE_ID)
-        .limit(1)
-        .execute()
-    )
+    try:
+        response = (
+            _supabase_client()
+            .table(SUPABASE_TABLE)
+            .select("payload")
+            .eq("id", SUPABASE_STATE_ID)
+            .limit(1)
+            .execute()
+        )
+    except httpx.TransportError as exc:
+        warnings.warn(
+            f"Supabase is unreachable ({exc}). Using local JSON storage for this run.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return _load_local()
     if response.data:
         payload = response.data[0].get("payload")
         if isinstance(payload, dict):
@@ -113,19 +123,27 @@ def save_data(data: dict[str, Any]) -> None:
         _save_local(data)
         return
 
-    (
-        _supabase_client()
-        .table(SUPABASE_TABLE)
-        .upsert(
-            {
-                "id": SUPABASE_STATE_ID,
-                "payload": data,
-                "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-            },
-            on_conflict="id",
+    try:
+        (
+            _supabase_client()
+            .table(SUPABASE_TABLE)
+            .upsert(
+                {
+                    "id": SUPABASE_STATE_ID,
+                    "payload": data,
+                    "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+                },
+                on_conflict="id",
+            )
+            .execute()
         )
-        .execute()
-    )
+    except httpx.TransportError as exc:
+        warnings.warn(
+            f"Supabase is unreachable ({exc}). Saving to local JSON storage instead.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        _save_local(data)
 
 
 def add_event(kind: str, payload: dict[str, Any]) -> None:
